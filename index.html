@@ -1,0 +1,2005 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerador de Relatórios de Busca Ativa - e-SUS APS</title>
+    
+    <!-- React e ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel para JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Bibliotecas Auxiliares (PapaParse e jsPDF) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f0f2f5; }
+        .loading-spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #0ea5e9;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        .table-container::-webkit-scrollbar { width: 8px; height: 8px; }
+        .table-container::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .table-container::-webkit-scrollbar-track { background: #f1f5f9; }
+        
+        /* Estilo para checkboxes personalizados */
+        .checkbox-wrapper input:checked + div {
+            background-color: #0ea5e9;
+            border-color: #0ea5e9;
+        }
+        .checkbox-wrapper input:checked + div svg {
+            display: block;
+        }
+        
+        /* Estilos para cabeçalhos ordenáveis */
+        th.sortable:hover {
+            background-color: #e2e8f0;
+        }
+        
+        /* Fundo animado suave para o login */
+        .login-bg {
+            background-color: #f0f9ff;
+            background-image: radial-gradient(#e0f2fe 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useMemo } = React;
+
+        // =================================================================================
+        // CONFIGURAÇÃO DE ACESSO (LOGIN)
+        // =================================================================================
+        const AUTHORIZED_ACCOUNTS = {
+            "cachoeira de minas": "012025",
+            "delfim moreira": "042025",
+            "itapeva": "052025",
+            "sao joaquim de bicas": "30dias",
+        };
+
+        // --- Componentes de Ícones (Inline) ---
+        const Icon = ({ children, className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{children}</svg>
+        );
+        const FileText = ({ className }) => (<Icon className={className}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><line x1="10" y1="9" x2="8" y2="9" /></Icon>);
+        const Upload = ({ className }) => (<Icon className={className}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></Icon>);
+        const Download = ({ className }) => (<Icon className={className}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></Icon>);
+        const Trash2 = ({ className }) => (<Icon className={className}><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></Icon>);
+        const CheckCircle = ({ className }) => (<Icon className={className}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></Icon>);
+        const Search = ({ className }) => (<Icon className={className}><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></Icon>);
+        const Settings = ({ className }) => (<Icon className={className}><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></Icon>);
+        const Filter = ({ className }) => (<Icon className={className}><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" /></Icon>);
+        const Calculator = ({ className }) => (<Icon className={className}><rect x="4" y="2" width="16" height="20" rx="2" /><line x1="8" y1="6" x2="16" y2="6" /><line x1="16" y1="14" x2="16" y2="18" /><path d="M16 10h.01" /><path d="M12 10h.01" /><path d="M8 10h.01" /><path d="M12 14h.01" /><path d="M8 14h.01" /><path d="M12 18h.01" /><path d="M8 18h.01" /></Icon>);
+        const ArrowUp = ({ className }) => (<Icon className={className}><line x1="12" y1="19" x2="12" y2="5" /><polyline points="5 12 12 5 19 12" /></Icon>);
+        const ArrowDown = ({ className }) => (<Icon className={className}><line x1="12" y1="5" x2="12" y2="19" /><polyline points="19 12 12 19 5 12" /></Icon>);
+        const ArrowUpDown = ({ className }) => (<Icon className={className}><path d="M7 15l5 5 5-5"/><path d="M7 9l5-5 5 5"/></Icon>);
+        const ListOrder = ({ className }) => (<Icon className={className}><line x1="10" y1="6" x2="21" y2="6" /><line x1="10" y1="12" x2="21" y2="12" /><line x1="10" y1="18" x2="21" y2="18" /><path d="M4 6h1v4" /><path d="M4 10h2" /><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1" /></Icon>);
+        const RefreshCw = ({ className }) => (<Icon className={className}><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></Icon>);
+        const Lock = ({ className }) => (<Icon className={className}><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></Icon>);
+        const User = ({ className }) => (<Icon className={className}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></Icon>);
+        const Key = ({ className }) => (<Icon className={className}><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" /></Icon>);
+        const LogOut = ({ className }) => (<Icon className={className}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></Icon>);
+
+        // --- Definição dos Filtros/Presets ---
+        const FILTER_PRESETS = [
+            { 
+                id: 'all', 
+                label: 'Mostrar Todas as Colunas', 
+                keywords: [],
+                strict: false
+            },
+            { 
+                id: 'cadastral', 
+                label: 'Atualização Cadastral', 
+                keywords: [
+                    'nome', 'cpf', 'cns', 'data de nascimento', 'idade',
+                    'microárea', 'equipe', 'rua', 'número', 'bairro',
+                    'celular', 'telefone',
+                    'data da última atualização', 'data atualização', 'última atualização',
+                    'responsável familiar',
+                    'pendências'
+                ],
+                strict: true
+            },
+            { 
+                id: 'c1', 
+                label: 'C1 - Mais Acesso', 
+                keywords: [], 
+                strict: false
+            },
+            { 
+                id: 'c2', 
+                label: 'C2 - Desenvolvimento Infantil', 
+                keywords: [
+                    'nome', 'data de nascimento', 'idade', 
+                    'beneficiário do programa bolsa família', 'vigência do programa bolsa família',
+                    'cpf', 'microárea', 'rua', 'número',
+                    'data da primeira consulta',
+                    'quantidade de consultas até 24 meses', 'quantidade de medições de peso/altura',
+                    'data da primeira visita domiciliar', 'data da segunda visita domiciliar',
+                    'difteria, tétano, pertusis, hepatite b', 'poliomielite',
+                    'sarampo, caxumba, rubéola', 'pneumocócica',
+                    'pontuação', 'pendências'
+                ],
+                strict: true 
+            },
+            { 
+                id: 'c3', 
+                label: 'C3 - Gestação e Puerpério', 
+                keywords: [
+                    'nome', 'data de nascimento',
+                    'beneficiário do programa bolsa família', 'vigência do programa bolsa família',
+                    'cpf', 'microárea', 'rua', 'número', 'risco gestacional', 
+                    'dum', 'ig(dum)', 'dpp (dum)',
+                    'quantidade de atendimentos no pré-natal', 'quantidade de atendimentos até 12 semanas',
+                    'quantidade de atendimentos odontológicos', 'dtpa',
+                    'quantidade de medições de pressão arterial', 'quantidade de medições simultâneas de peso e altura',
+                    'exame de hiv no primeiro', 'exame de sífilis no primeiro',
+                    'exame de hepatite b no primeiro', 'exame de hepatite c no primeiro',
+                    'exame de hiv no terceiro', 'exame de sífilis no terceiro', 'exame de sifilis no terceiro',
+                    'quantidade de visitas domiciliares no pré-natal', 'quantidade de visitas domiciliares no puerpério',
+                    'quantidade de atendimentos no puerpério',
+                    'pontuação', 'pendências'
+                ],
+                strict: true
+            },
+            { 
+                id: 'c4', 
+                label: 'C4 - Cuidado da Pessoa com DM', 
+                keywords: [
+                    'nome', 'data de nascimento',
+                    'cpf', 'microárea', 'rua', 'número',
+                    'data da ultima medição de peso e altura', 'data da última medição de pressão arterial',
+                    'últimas visitas domiciliares', 
+                    'data da hemoglobina glicada', 
+                    'data da avaliação dos pés',
+                    'data da última consulta', 
+                    'incluído na lista de problemas e condições',
+                    'pontuação', 'pendências'
+                ],
+                strict: true
+            },
+            { 
+                id: 'c5', 
+                label: 'C5 - Cuidado da Pessoa com HAS', 
+                keywords: [
+                    'nome', 'data de nascimento',
+                    'cpf', 'microárea', 'rua', 'número',
+                    'data da ultima medição de peso e altura', 'data da última medição de pressão arterial',
+                    'últimas visitas domiciliares',
+                    'data da última consulta',
+                    'consultas (últimos 36 meses)',
+                    'incluído na lista de problemas e condições',
+                    'pontuação', 'pendências'
+                ],
+                strict: true
+            },
+            { 
+                id: 'c6', 
+                label: 'C6 - Cuidado da Pessoa Idosa', 
+                keywords: [
+                    'nome', 'data de nascimento', 'idade',
+                    'cpf', 'microárea', 'rua', 'número',
+                    'meses desde o último atendimento médico',
+                    'meses desde o último atendimento de enfermagem',
+                    'data da ultima medição de peso e altura',
+                    'últimas visitas domiciliares', 
+                    'influenza', 'ivcf-20 data', 
+                    'pendências'
+                ],
+                strict: true
+            },
+            { 
+                id: 'c7', 
+                label: 'C7 - Cuidado da Mulher na Prevenção do Câncer', 
+                keywords: [
+                    'nome', 'data de nascimento', 'idade',
+                    'cpf', 'microárea', 'rua', 'número',
+                    'exame de rastreamento de câncer de colo de útero data última solicitação',
+                    'exame de rastreamento de câncer de colo de útero data última avaliação',
+                    'hpv',
+                    'data da última consulta de saúde sexual e reprodutiva',
+                    'exame de rastreamento de câncer de mama data última solicitação',
+                    'exame de rastreamento de câncer de mama data última avaliação',
+                    'pontuação', 'pendências'
+                ],
+                strict: true
+            }
+        ];
+
+        // Colunas de identificação padrão
+        const IDENTIFICATION_COLUMNS = ['nome', 'cpf', 'cns', 'idade', 'nascimento', 'microárea', 'equipe', 'telefone', 'sexo', 'rua', 'número', 'bairro', 'bolsa família', 'vigência'];
+        
+        // Palavras-chave de pontuação
+        const SCORING_KEYWORDS = ['data', 'exame', 'consulta', 'vacina', 'visita', 'peso', 'altura', 'hemoglobina', 'aferição', 'sifilis', 'hiv', 'citopatológico', 'mamografia', 'dpp', 'dum', 'influenza', 'ivcf', 'registros', 'pontuação', 'pendências'];
+
+        function App() {
+            // -- Estados de Autenticação --
+            const [isAuthenticated, setIsAuthenticated] = useState(false);
+            const [loginUser, setLoginUser] = useState("");
+            const [loginPass, setLoginPass] = useState("");
+            const [loginError, setLoginError] = useState("");
+
+            // -- Estados do App Principal --
+            const [file, setFile] = useState(null);
+            const [csvData, setCsvData] = useState([]);
+            const [headers, setHeaders] = useState([]); 
+            const [selectedHeaders, setSelectedHeaders] = useState([]); 
+            const [currentFilter, setCurrentFilter] = useState('all');
+            const [loading, setLoading] = useState(false);
+            const [errorMsg, setErrorMsg] = useState("");
+            const [stats, setStats] = useState(null);
+            
+            // Novos estados para organização e ordenação
+            const [isReordering, setIsReordering] = useState(false);
+            const [hasCustomOrder, setHasCustomOrder] = useState(false);
+            const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
+            
+            const [teamData, setTeamData] = useState({
+                nome: "", 
+                municipio: "",
+                indicador: "C1 - Mais Acesso", 
+                autor: "Júlia Ribeiro", 
+                dataGeracao: new Date().toLocaleDateString('pt-BR')
+            });
+
+            // --- FUNÇÃO DE LOGIN ---
+            const handleLogin = (e) => {
+                e.preventDefault();
+                setLoginError("");
+
+                const userClean = loginUser.trim().toLowerCase();
+                const passClean = loginPass.trim();
+
+                if (!userClean || !passClean) {
+                    setLoginError("Preencha todos os campos.");
+                    return;
+                }
+
+                if (AUTHORIZED_ACCOUNTS[userClean] === passClean) {
+                    setIsAuthenticated(true);
+                    setTeamData(prev => ({
+                        ...prev,
+                        municipio: userClean.toUpperCase() // Preenche o município automaticamente
+                    }));
+                } else {
+                    setLoginError("Município ou senha incorretos.");
+                }
+            };
+            
+            const handleLogout = () => {
+                setIsAuthenticated(false);
+                setLoginUser("");
+                setLoginPass("");
+                setLoginError("");
+                setFile(null);
+                setCsvData([]);
+            };
+
+            // Lógica Unificada de Status da Célula (Fallback genérico)
+            const getCellStatus = (text) => {
+                if (text === null || text === undefined || String(text).trim() === "" || String(text).trim() === "-") {
+                    return 'empty';
+                }
+                if (typeof text !== 'string') return 'neutral';
+                const lower = text.toLowerCase();
+                
+                if (lower.includes('não aplica') || lower.includes('nao_se_aplica') || lower.includes('sem informação') || lower.includes('não se aplica')) return 'neutral'; 
+                if (lower.includes('atrasad') || lower.includes('nunca realizado') || lower.includes('pendente')) return 'critical';
+                if (lower.includes('em dia') || lower.includes('realizado')) return 'good';
+                return 'neutral';
+            };
+            
+            // --- Helper Functions de Data ATUALIZADA ---
+            const parseDatePT = (dateStr) => {
+                if (!dateStr || typeof dateStr !== 'string') return null;
+                const cleanStr = dateStr.trim();
+                
+                // DD/MM/YYYY
+                let match = cleanStr.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+                if (match) return new Date(match[3], match[2] - 1, match[1]);
+                
+                // YYYY-MM-DD
+                match = cleanStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+                if (match) return new Date(match[1], match[2] - 1, match[3]);
+
+                // DD-MM-YYYY
+                match = cleanStr.match(/^(\d{2})-(\d{2})-(\d{4})/);
+                if (match) return new Date(match[3], match[2] - 1, match[1]);
+
+                return null;
+            };
+            
+            // Helper para contar datas (ATUALIZADA PARA ISO)
+            const countDates = (str) => {
+                if (!str || typeof str !== 'string') return 0;
+                const slashDates = str.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
+                const isoDates = str.match(/\d{4}-\d{2}-\d{2}/g) || [];
+                const dashDates = str.match(/\d{2}-\d{2}-\d{4}/g) || [];
+                return slashDates.length + isoDates.length + dashDates.length;
+            };
+
+            const getDiffDays = (d1, d2) => {
+                if (!d1 || !d2) return null;
+                const diffTime = Math.abs(d2 - d1);
+                return Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+            };
+            
+            const isDateInLastMonths = (dateStr, months) => {
+                const date = parseDatePT(dateStr);
+                if (!date) return false;
+                
+                const now = new Date();
+                const pastDate = new Date();
+                pastDate.setMonth(now.getMonth() - months);
+                pastDate.setHours(0,0,0,0);
+                date.setHours(0,0,0,0);
+                now.setHours(23,59,59,999);
+                
+                return date >= pastDate && date <= now;
+            };
+
+            const getAge = (dob) => {
+                if (!dob) return -1;
+                const diff = new Date() - dob;
+                return Math.floor(diff / (1000 * 60 * 60 * 24 * 365.25));
+            };
+
+            const getColValue = (row, keywords) => {
+                const rowKeys = Object.keys(row);
+                for (const kw of keywords) {
+                    const match = rowKeys.find(k => k.toLowerCase().includes(kw.toLowerCase()));
+                    if (match) return row[match];
+                }
+                return null;
+            };
+
+            // --- FUNÇÃO DE ANÁLISE UNIFICADA PARA C2-C7 ---
+            const analyzeIndicatorCell = (header, row, filterId) => {
+                // 1. Ignorar se não for um filtro específico ou se for coluna de identificação
+                if (!['c2','c3','c4','c5','c6','c7', 'cadastral'].includes(filterId)) return null;
+                
+                const h = header.toLowerCase();
+                
+                // Lista expandida para incluir Microárea e Endereço na análise
+                const isVitalIndicator = h.includes('atendimentos') || h.includes('consultas') || h.includes('visitas') || h.includes('exame') || h.includes('vacina') || h.includes('medições') || h.includes('pressão') || h.includes('peso') || h.includes('altura') || h.includes('quantidade') || h.includes('idade na primeira') || h.includes('atualização') || h.includes('microárea') || h.includes('microarea') || h.includes('rua') || h.includes('endereço') || h.includes('logradouro') || h.includes('colo') || h.includes('citopatológico') || h.includes('mama') || h.includes('hpv') || h.includes('sexual') || h.includes('reprodutiva');
+                
+                if (!isVitalIndicator && IDENTIFICATION_COLUMNS.some(id => h.includes(id))) return null;
+
+                const val = row[header];
+                const valStr = String(val || "").trim();
+                const valLower = valStr.toLowerCase();
+
+                // --- REGRAS GERAIS DE CADASTRO (Microárea e Endereço) ---
+                if (h.includes('microárea') || h.includes('microarea')) {
+                      if (valLower.includes('não informada') || valLower.includes('nao informada') || 
+                          valLower.includes('fora de área') || valLower.includes('fora de area') || 
+                          valLower.includes('fora da área') || valLower.includes('fora da area') || 
+                          valLower.includes('sem micro') || valStr === '-' || valStr === '') {
+                          return { status: 'critical' };
+                      }
+                      return { status: 'neutral' };
+                }
+
+                if (h.includes('rua') || h.includes('endereço') || h.includes('logradouro')) {
+                    if (!val || valStr === '-' || valStr === '') {
+                        return { status: 'critical' };
+                    }
+                    return { status: 'neutral' };
+                }
+
+                // --- INDICADOR: ATUALIZAÇÃO CADASTRAL ---
+                if (filterId === 'cadastral') {
+                    // ... (lógica cadastral existente)
+                    const isUpdateCol = (h.includes('data') && (h.includes('atualização') || h.includes('ultima') || h.includes('última'))) || 
+                                      (h.includes('última') && h.includes('atualização')) ||
+                                      (h.includes('ultima') && h.includes('atualizacao')) ||
+                                      h.includes('atualização cadastral');
+
+                    if (isUpdateCol) {
+                        const dateVal = parseDatePT(valStr);
+                        if (!dateVal) return { status: 'critical' }; 
+
+                        const now = new Date();
+                        const diffTime = Math.abs(now - dateVal);
+                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                        
+                        if (diffDays <= 548) return { status: 'good' }; 
+                        else if (diffDays <= 730) return { status: 'warning' };
+                        else return { status: 'critical' };
+                    }
+                    return { status: 'neutral' };
+                }
+
+                // --- REGRAS ESPECÍFICAS C7 (CÂNCER MULHER) ---
+                if (filterId === 'c7') {
+                    const dob = parseDatePT(getColValue(row, ['nascimento', 'data de nascimento']));
+                    if (!dob) return null;
+                    const age = getAge(dob);
+                    
+                    // 1. Colo/Citopatológico (25-64 anos)
+                    if (h.includes('colo') || h.includes('citopatológico')) {
+                        if (age < 25 || age > 64) return { status: 'neutral' }; // Fora da faixa = Cinza
+                        
+                        // Dentro da faixa, aplica regras de data (36 meses)
+                        if (valLower.includes('nunca') || valLower === '-') return { status: 'critical' };
+                        const isDate = parseDatePT(valStr) !== null;
+                        if (isDate) {
+                            return isDateInLastMonths(valStr, 36) ? { status: 'good' } : { status: 'critical' };
+                        }
+                        return { status: 'critical' };
+                    }
+
+                    // 2. Mamografia (50-69 anos)
+                    if (h.includes('mama') || h.includes('mamografia')) {
+                        if (age < 50 || age > 69) return { status: 'neutral' }; // Fora da faixa = Cinza
+                        
+                        // Dentro da faixa, aplica regras de data (24 meses)
+                        if (valLower.includes('nunca') || valLower === '-') return { status: 'critical' };
+                        const isDate = parseDatePT(valStr) !== null;
+                        if (isDate) {
+                            return isDateInLastMonths(valStr, 24) ? { status: 'good' } : { status: 'critical' };
+                        }
+                        return { status: 'critical' };
+                    }
+
+                    // 3. HPV (9-14 anos)
+                    if (h.includes('hpv')) {
+                        if (age < 9 || age > 14) return { status: 'neutral' }; // Fora da faixa = Cinza
+                        
+                        // Dentro da faixa
+                        if (valStr === '-' || valStr === '' || valLower.includes('nunca') || valLower.includes('não')) return { status: 'critical' };
+                        return { status: 'good' };
+                    }
+
+                    // 4. Saúde Sexual (14-69 anos)
+                    if (h.includes('sexual') || h.includes('reprodutiva')) {
+                          if (age < 14 || age > 69) return { status: 'neutral' }; // Fora da faixa = Cinza
+                          
+                          // Dentro da faixa (12 meses)
+                          if (valLower.includes('nunca') || valLower === '-') return { status: 'critical' };
+                          const isDate = parseDatePT(valStr) !== null;
+                          if (isDate) {
+                             return isDateInLastMonths(valStr, 12) ? { status: 'good' } : { status: 'critical' };
+                          }
+                          return { status: 'critical' };
+                    }
+                    
+                    return { status: 'neutral' };
+                }
+
+                // --- REGRAS ESPECÍFICAS C2 (Desenvolvimento Infantil) ---
+                if (filterId === 'c2') {
+                    // 1. Despadronização
+                    if (h.includes('identidade de gênero') || 
+                        h.includes('visitas domiciliares até') || // Quantidade de visitas (não datas)
+                        (h.includes('data') && h.includes('primeira consulta'))) {
+                        return { status: 'neutral' }; 
+                    }
+
+                    // 2. Idade na Primeira Consulta
+                    if (h.includes('idade') && h.includes('primeira consulta')) {
+                        const num = parseInt(valStr.replace(/\D/g, ''));
+                        if (isNaN(num)) return { status: 'critical' }; 
+                        return num <= 30 ? { status: 'good' } : { status: 'critical' };
+                    }
+
+                    // 3. Data da Primeira Visita (30 dias)
+                    if (h.includes('data') && (h.includes('primeira visita') || h.includes('1ª visita'))) {
+                        const dob = parseDatePT(getColValue(row, ['nascimento', 'data de nascimento']));
+                        const visitDate = parseDatePT(valStr);
+                        if (!dob) return { status: 'neutral' }; 
+                        if (!visitDate) return { status: 'critical' };
+                        const diff = getDiffDays(dob, visitDate);
+                        return diff <= 30 ? { status: 'good' } : { status: 'critical' };
+                    }
+
+                    // 4. Data da Segunda Visita (180 dias)
+                    if (h.includes('data') && (h.includes('segunda visita') || h.includes('2ª visita'))) {
+                        const dob = parseDatePT(getColValue(row, ['nascimento', 'data de nascimento']));
+                        const visitDate = parseDatePT(valStr);
+                        if (!dob) return { status: 'neutral' };
+                        if (!visitDate) return { status: 'critical' };
+                        const diff = getDiffDays(dob, visitDate);
+                        // AJUSTE: Verde se <= 180 dias
+                        return diff <= 180 ? { status: 'good' } : { status: 'critical' };
+                    }
+
+                    // 5. Quantidade de Medições de Peso/Altura
+                    if (h.includes('quantidade') && (h.includes('peso') || h.includes('altura'))) {
+                        const num = parseInt(valStr.replace(/\D/g, '')) || 0;
+                        return num >= 9 ? { status: 'good' } : { status: 'critical' };
+                    }
+
+                    // 6. Vacinas
+                    if (h.includes('difteria') || h.includes('penta') || h.includes('poliomielite') || h.includes('sarampo') || h.includes('pneumo') || h.includes('tríplice')) {
+                        if (valLower.includes('não se aplica') || valLower.includes('nao_se_aplica')) return { status: 'neutral' };
+                        const numDates = countDates(valStr);
+                        const isExplicitlyDone = valLower.includes('em dia') || valLower.includes('completo') || valLower.includes('todas as doses');
+                        if (h.includes('sarampo') || h.includes('triplice') || h.includes('tríplice')) {
+                            return (numDates >= 2 || isExplicitlyDone) ? { status: 'good' } : { status: 'critical' };
+                        }
+                        return (numDates >= 3 || isExplicitlyDone) ? { status: 'good' } : { status: 'critical' };
+                    }
+                }
+
+                // 2. Colunas de Pontuação e Pendências
+                if (header === 'Pontuação' || header === 'Pendências') return null;
+
+                // 3. Status "Neutro" (Não se aplica) -- GLOBAL
+                if (valLower.includes('não aplica') || valLower.includes('nao_se_aplica') || valLower.includes('sem informação') || valLower.includes('não se aplica') || valLower.includes('sem micro')) return { status: 'neutral' };
+
+                // --- REGRAS ESPECÍFICAS PARA C3 (Gestação) ---
+                if (filterId === 'c3') {
+                    if (h.includes('dum') || h.includes('dpp') || h.includes('ig(dum)') || h.includes('ig (dum)')) {
+                        return { status: 'neutral' };
+                    }
+                    const getInt = (s) => parseInt(String(s).replace(/\D/g, '')) || 0;
+                    if (h.includes('atendimentos no pré-natal') || h.includes('atendimentos pré-natal')) {
+                        const num = getInt(valStr);
+                        return num >= 7 ? { status: 'good' } : { status: 'critical' };
+                    }
+                    if (h.includes('pressão arterial') && (h.includes('medições') || h.includes('quantidade'))) {
+                        const num = getInt(valStr);
+                        return num >= 7 ? { status: 'good' } : { status: 'critical' };
+                    }
+                    if ((h.includes('peso') && h.includes('altura')) && (h.includes('medições') || h.includes('quantidade'))) {
+                        const num = getInt(valStr);
+                        return num >= 7 ? { status: 'good' } : { status: 'critical' };
+                    }
+                    if (h.includes('quantidade') || h.includes('número')) {
+                        const num = getInt(valStr);
+                        if (h.includes('12 semanas') || h.includes('atendimentos até 12')) return num >= 1 ? { status: 'good' } : { status: 'critical' };
+                        if (h.includes('odontológico') || h.includes('bocal') || h.includes('bucal')) return num >= 1 ? { status: 'good' } : { status: 'critical' };
+                        if (h.includes('visitas') && h.includes('pré-natal')) return num >= 3 ? { status: 'good' } : { status: 'critical' };
+                        if (h.includes('visitas') && h.includes('puerpério')) return num >= 1 ? { status: 'good' } : { status: 'critical' };
+                        if (h.includes('atendimentos no puerpério')) return num >= 1 ? { status: 'good' } : { status: 'critical' };
+                    }
+                    if (h.includes('dtpa')) {
+                          if (valLower.includes('não se aplica')) return { status: 'neutral' };
+                          if (valStr && valStr !== '-' && !valLower.startsWith('não') && !valLower.includes('pendente')) return { status: 'good' };
+                          return { status: 'critical' };
+                    }
+                    if (h.includes('exame de') || h.includes('sifilis') || h.includes('sífilis') || h.includes('hiv') || h.includes('hepatite')) {
+                          if (valLower.includes('não se aplica')) return { status: 'neutral' };
+                          const isGood = valLower.includes('sim') || valLower.includes('realizado') || (parseDatePT(valStr) !== null);
+                          return isGood ? { status: 'good' } : { status: 'critical' };
+                    }
+                }
+
+                // --- REGRAS ESPECÍFICAS PARA VISITAS DOMICILIARES (C4, C5 e C6) ---
+                if (['c4', 'c5', 'c6'].includes(filterId) && h.includes('visita')) {
+                    const validDates = [];
+                    // Regex robusto para buscar todas as datas na string
+                    const regex = /(\d{2}\/\d{2}\/\d{4})|(\d{4}-\d{2}-\d{2})/g;
+                    let m;
+                    while ((m = regex.exec(valStr)) !== null) {
+                        // m[0] contém a data encontrada (seja ISO ou PT)
+                        const d = parseDatePT(m[0]);
+                        if (d) validDates.push(d);
+                    }
+
+                    if (validDates.length >= 2) {
+                          const now = new Date(); 
+                          const yearAgo = new Date(); yearAgo.setMonth(now.getMonth() - 12);
+                          const recentDates = validDates.filter(d => d >= yearAgo && d <= now);
+                          if (recentDates.length >= 2) {
+                              recentDates.sort((a, b) => a - b);
+                              for (let i = 0; i < recentDates.length - 1; i++) {
+                                  for (let j = i + 1; j < recentDates.length; j++) {
+                                       if (getDiffDays(recentDates[i], recentDates[j]) >= 29) { 
+                                            return { status: 'good' }; 
+                                       }
+                                  }
+                              }
+                          }
+                    }
+                    return { status: 'critical' };
+                }
+
+                // --- REGRAS ESPECÍFICAS PARA C6 (Idoso) ---
+                if (filterId === 'c6') {
+                    if (h.includes('ivcf')) return { status: 'neutral' };
+                    if (h.includes('meses') && (h.includes('médico') || h.includes('enfermagem') || h.includes('atendimento'))) {
+                        const num = parseInt(valStr.replace(/\D/g, ''));
+                        if (isNaN(num)) return { status: 'critical' };
+                        if (num < 12) return { status: 'good' };
+                        return { status: 'critical' };
+                    }
+                    if (h.includes('peso') || h.includes('altura')) {
+                          return isDateInLastMonths(valStr, 12) ? { status: 'good' } : { status: 'critical' };
+                    }
+                    if (h.includes('influenza') || h.includes('vacina')) {
+                        if (valLower.includes('em dia') || valLower.includes('sim') || (isDateInLastMonths(valStr, 12))) return { status: 'good' };
+                        return { status: 'critical' };
+                    }
+                }
+
+                // 4. Status "Crítico" Imediato
+                if (!val || valStr === '-' || valStr === '') return { status: 'critical' };
+                if (valLower.includes('atrasad') || valLower.includes('nunca') || valLower.includes('pendente')) return { status: 'critical' };
+                if (valLower === 'não' || valLower.startsWith('não ')) return { status: 'critical' };
+
+                // 5. Status "Bom" Imediato
+                if (valLower.includes('em dia') || valLower.includes('realizado') || valLower.includes('sim') || valLower.includes('completo')) return { status: 'good' };
+
+                // 6. Análise de Datas
+                const isDate = parseDatePT(valStr) !== null;
+                
+                if (isDate) {
+                    if (filterId === 'c4' || filterId === 'c5') {
+                        if (h.includes('pressão') || h.includes('consulta')) {
+                            return isDateInLastMonths(valStr, 6) ? { status: 'good' } : { status: 'critical' };
+                        }
+                        if (h.includes('peso') || h.includes('hemoglobina') || h.includes('pés')) {
+                            return isDateInLastMonths(valStr, 12) ? { status: 'good' } : { status: 'critical' };
+                        }
+                        return { status: 'good' }; 
+                    }
+                    return { status: 'good' }; 
+                }
+
+                // 7. Quantidades
+                if (h.includes('quantidade') || h.includes('número') || h.includes('total')) {
+                    const num = parseInt(valStr.replace(/\D/g, '')) || 0;
+                    if (num === 0) return { status: 'critical' };
+                    if (filterId === 'c3' && h.includes('consulta') && num < 7) return { status: 'critical' }; 
+                    if (filterId === 'c2' && h.includes('consulta') && num < 9) return { status: 'critical' }; 
+                    return { status: 'good' };
+                }
+
+                return { status: 'neutral' };
+            };
+
+            const parseCSV = (fileToParse) => {
+                setLoading(true);
+                setErrorMsg("");
+                setStats(null);
+                
+                Papa.parse(fileToParse, {
+                    header: false,
+                    encoding: "ISO-8859-1", 
+                    skipEmptyLines: true,
+                    delimitersToGuess: [';', ',', '\t'],
+                    beforeFirstChunk: (chunk) => {
+                        let offset = 0;
+                        const linesToSkip = 17; // ALTERADO: De 24 para 17 para o relatório cadastral
+                        for (let i = 0; i < linesToSkip; i++) {
+                            const found = chunk.indexOf('\n', offset);
+                            if (found === -1) break; 
+                            offset = found + 1;
+                        }
+                        return chunk.slice(offset);
+                    },
+                    complete: (results) => {
+                        try {
+                            const rawRows = results.data;
+                            if (!rawRows || rawRows.length === 0) throw new Error("Arquivo vazio");
+
+                            let headerRowIndex = -1;
+                            for (let i = 0; i < Math.min(rawRows.length, 50); i++) {
+                                const row = rawRows[i];
+                                const rowStr = row.join(" ").toLowerCase();
+                                if (rowStr.includes("nome") && (rowStr.includes("cpf") || rowStr.includes("cns") || rowStr.includes("cidadão") || rowStr.includes("prontuário"))) {
+                                    headerRowIndex = i;
+                                    break;
+                                }
+                                if (rowStr.includes("nome") && row.length > 3 && i > 3) {
+                                     headerRowIndex = i;
+                                     break;
+                                }
+                            }
+                            if (headerRowIndex === -1) {
+                                headerRowIndex = rawRows.findIndex(row => row.length > 3);
+                                if(headerRowIndex === -1) headerRowIndex = 0;
+                            }
+
+                            const rawHeaderRow = rawRows[headerRowIndex];
+                            const cleanHeaders = [];
+                            const validColumnIndices = [];
+
+                            rawHeaderRow.forEach((cell, index) => {
+                                if (cell && cell.trim().length > 0) {
+                                    cleanHeaders.push(cell.trim());
+                                    validColumnIndices.push(index);
+                                }
+                            });
+
+                            if (cleanHeaders.length === 0) throw new Error("Não foi possível identificar as colunas do arquivo.");
+
+                            const foundDataRows = rawRows.slice(headerRowIndex + 1);
+                            const structuredData = foundDataRows.map(row => {
+                                const obj = {};
+                                validColumnIndices.forEach((colIndex, i) => {
+                                    const headerName = cleanHeaders[i];
+                                    obj[headerName] = row[colIndex] || "";
+                                });
+                                return obj;
+                            });
+                            
+                            const cleanData = structuredData.filter(row => Object.values(row).some(v => v !== ""));
+
+                            setHeaders(cleanHeaders);
+                            setSelectedHeaders(cleanHeaders);
+                            setCsvData(cleanData);
+                            setLoading(false);
+                            setHasCustomOrder(false);
+                            setSortConfig({ key: null, direction: 'asc' }); 
+
+                        } catch (err) {
+                            console.error(err);
+                            setErrorMsg("Erro ao processar CSV: " + err.message);
+                            setLoading(false);
+                        }
+                    },
+                    error: (err) => {
+                        console.error(err);
+                        setErrorMsg("Erro na leitura do arquivo.");
+                        setLoading(false);
+                    }
+                });
+            };
+
+            const handleFileUpload = (event) => {
+                const uploadedFile = event.target.files[0];
+                if (!uploadedFile) return;
+                setFile(uploadedFile);
+                parseCSV(uploadedFile);
+            };
+
+            const resetFile = () => {
+                setFile(null);
+                setCsvData([]);
+                setHeaders([]);
+                setSelectedHeaders([]);
+                setErrorMsg("");
+                setCurrentFilter('all');
+                setStats(null);
+                setHasCustomOrder(false);
+                setSortConfig({ key: null, direction: 'asc' });
+            };
+
+            const toggleHeader = (header) => {
+                let newHeaders;
+                if (selectedHeaders.includes(header)) {
+                    newHeaders = selectedHeaders.filter(h => h !== header);
+                } else {
+                    if (hasCustomOrder) {
+                        newHeaders = [...selectedHeaders, header];
+                    } else {
+                        const newSet = new Set([...selectedHeaders, header]);
+                        newHeaders = headers.filter(h => newSet.has(h));
+                    }
+                }
+                setSelectedHeaders(newHeaders);
+            };
+
+            const moveHeader = (index, direction) => {
+                if (direction === 'up' && index === 0) return;
+                if (direction === 'down' && index === selectedHeaders.length - 1) return;
+                const newHeaders = [...selectedHeaders];
+                const targetIndex = direction === 'up' ? index - 1 : index + 1;
+                [newHeaders[index], newHeaders[targetIndex]] = [newHeaders[targetIndex], newHeaders[index]];
+                setSelectedHeaders(newHeaders);
+                setHasCustomOrder(true);
+            };
+
+            const resetOrder = () => {
+                const newSet = new Set(selectedHeaders);
+                const sorted = headers.filter(h => newSet.has(h));
+                setSelectedHeaders(sorted);
+                setHasCustomOrder(false);
+            };
+
+            const handleSort = (key) => {
+                let direction = 'asc';
+                if (sortConfig.key === key && sortConfig.direction === 'asc') {
+                    direction = 'desc';
+                }
+                setSortConfig({ key, direction });
+            };
+
+            const sortedData = useMemo(() => {
+                if (!sortConfig.key) return csvData;
+
+                const sorted = [...csvData].sort((a, b) => {
+                    const valA = a[sortConfig.key];
+                    const valB = b[sortConfig.key];
+                    
+                    const isDateLike = (d) => parseDatePT(d) !== null;
+                    
+                    if (sortConfig.key === 'Pontuação' || sortConfig.key.toLowerCase().includes('idade')) {
+                          const numA = parseInt(String(valA).replace(/\D/g, '')) || 0;
+                          const numB = parseInt(String(valB).replace(/\D/g, '')) || 0;
+                          return sortConfig.direction === 'asc' ? numA - numB : numB - numA;
+                    }
+
+                    if (isDateLike(valA) && isDateLike(valB)) {
+                        const dateA = parseDatePT(valA);
+                        const dateB = parseDatePT(valB);
+                        if (dateA && dateB) {
+                            return sortConfig.direction === 'asc' ? dateA - dateB : dateB - dateA;
+                        }
+                    }
+
+                    const strA = String(valA || "").toLowerCase();
+                    const strB = String(valB || "").toLowerCase();
+
+                    if (strA < strB) return sortConfig.direction === 'asc' ? -1 : 1;
+                    if (strA > strB) return sortConfig.direction === 'asc' ? 1 : -1;
+                    return 0;
+                });
+
+                return sorted;
+            }, [csvData, sortConfig]);
+
+            // ---- CÁLCULOS DAS PENDÊNCIAS ----
+            const calculatePendencies = (row, presetId) => {
+                let pending = [];
+                
+                if (presetId === 'cadastral') {
+                    const updateDate = getColValue(row, ['data da última atualização', 'última atualização', 'ultima atualizacao', 'atualização cadastral', 'data atualização']);
+                    const dateVal = parseDatePT(updateDate);
+                    
+                    if (!updateDate) {
+                        pending.push("Sem Data");
+                    } else {
+                        const now = new Date();
+                        const diffTime = Math.abs(now - dateVal);
+                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                        const diffMonths = Math.floor(diffDays / 30.44);
+
+                        if (diffDays > 730) { 
+                            pending.push(`Desatualizado há ${diffMonths} meses`);
+                        } else if (diffDays > 548) { 
+                            pending.push(`Atenção: Vence em breve (${diffMonths} meses)`);
+                        }
+                    }
+                }
+
+                if (presetId === 'c2') {
+                    const dob = parseDatePT(getColValue(row, ['nascimento']));
+                    if(dob) {
+                        const consult1Date = parseDatePT(getColValue(row, ['primeira consulta']));
+                        if (!consult1Date || getDiffDays(dob, consult1Date) > 30) pending.push("1ª Consulta");
+                        
+                        // Lógica Ajustada para Visitas
+                        const vd1Date = parseDatePT(getColValue(row, ['primeira visita', '1ª visita']));
+                        if (!vd1Date) {
+                             pending.push("1ª Visita (Ausente)");
+                        } else if (getDiffDays(dob, vd1Date) > 30) {
+                             pending.push("1ª Visita (Atrasada >30d)");
+                        }
+
+                        const vd2Date = parseDatePT(getColValue(row, ['segunda visita', '2ª visita']));
+                        if (!vd2Date) {
+                             pending.push("2ª Visita (Ausente)");
+                        } else if (getDiffDays(dob, vd2Date) > 180) {
+                             pending.push("2ª Visita (Atrasada >180d)");
+                        }
+                    }
+                    const qtdConsultasVal = getColValue(row, ['quantidade de consultas', 'consultas até 24']);
+                    const qtdC = qtdConsultasVal ? (parseInt(qtdConsultasVal.replace(/\D/g, '')) || 0) : 0;
+                    if (qtdC < 9) pending.push(`Consultas (${qtdC}/9)`);
+                    const qtdMedicoesVal = getColValue(row, ['peso/altura', 'medições de peso']);
+                    const qtdM = qtdMedicoesVal ? (parseInt(qtdMedicoesVal.replace(/\D/g, '')) || 0) : 0;
+                    if (qtdM < 9) pending.push(`Medições (${qtdM}/9)`);
+                    
+                    const pentaVal = getColValue(row, ['difteria', 'penta']);
+                    const polioVal = getColValue(row, ['poliomielite', 'vip', 'vop']);
+                    const tripleVal = getColValue(row, ['sarampo', 'triplice', 'tríplice']);
+                    const pneumoVal = getColValue(row, ['pneumo']);
+                    
+                    const checkVac = (val, requiredDoses) => { 
+                        if (!val) return false; 
+                        const v = String(val).toLowerCase(); 
+                        if (v.includes('em dia') || v.includes('completo')) return true;
+                        return countDates(String(val)) >= requiredDoses;
+                    };
+
+                    if (!checkVac(pentaVal, 3)) pending.push("Penta");
+                    if (!checkVac(polioVal, 3)) pending.push("Polio");
+                    if (!checkVac(tripleVal, 2)) pending.push("Tríplice");
+                    if (!checkVac(pneumoVal, 3)) pending.push("Pneumo");
+                }
+                if (presetId === 'c3') {
+                      const getInt = (keywords) => { const val = getColValue(row, keywords); return val ? (parseInt(String(val).replace(/\D/g, '')) || 0) : 0; };
+                      const isSim = (keywords) => { const val = getColValue(row, keywords); return val && String(val).toUpperCase().includes("SIM"); };
+                      const isFilled = (keywords) => { const val = getColValue(row, keywords); return val && String(val).trim().length > 0 && !String(val).toLowerCase().includes("não") && String(val).trim() !== '-'; };
+                      if (getInt(['atendimentos até 12 semanas', '12 semanas']) < 1) pending.push("Início Tardio (>12sem)");
+                      if (getInt(['quantidade de atendimentos no pré-natal', 'atendimentos pré-natal']) < 7) pending.push("Consultas Pré-Natal (<7)");
+                      if (getInt(['medições de pressão arterial']) < 7) pending.push("Aferição PA (<7)");
+                      if (getInt(['medições simultâneas de peso e altura', 'peso e altura']) < 7) pending.push("Peso/Altura (<7)");
+                      if (getInt(['visitas domiciliares no pré-natal']) < 3) pending.push("Visitas Pré-Natal (<3)");
+                      if (!isFilled(['dtpa'])) pending.push("Vacina dTpa");
+                      if (!isSim(['hiv no primeiro']) || !isSim(['sífilis no primeiro']) || !isSim(['hepatite b no primeiro']) || !isSim(['hepatite c no primeiro'])) pending.push("Exames 1º Trimestre");
+                      if (!isSim(['hiv no terceiro']) || !isSim(['sífilis no terceiro', 'sifilis no terceiro']) || !isSim(['hepatite b no terceiro']) || !isSim(['hepatite c no terceiro'])) pending.push("Exames 3º Trimestre");
+                      if (getInt(['visitas domiciliares no puerpério']) < 1) pending.push("Visita Puerpério");
+                      if (getInt(['atendimentos no puerpério']) < 1) pending.push("Consulta Puerpério");
+                      if (getInt(['atendimentos odontológicos', 'odontológico']) < 1) pending.push("Odonto");
+                }
+                if (presetId === 'c4' || presetId === 'c5') {
+                    const isDM = presetId === 'c4';
+                    const ultimaConsultaVal = getColValue(row, ['data da última consulta', 'última consulta']);
+                    if (!ultimaConsultaVal || !isDateInLastMonths(ultimaConsultaVal, 6)) pending.push("Consulta (6m)");
+                    const paVal = getColValue(row, ['data da última medição de pressão arterial', 'pressão arterial']);
+                    if (!paVal || !isDateInLastMonths(paVal, 6)) pending.push("PA (6m)");
+                    const pesoAlturaVal = getColValue(row, ['data da ultima medição de peso e altura', 'peso e altura']);
+                    if (!pesoAlturaVal || !isDateInLastMonths(pesoAlturaVal, 12)) pending.push("Peso/Altura (12m)");
+                    
+                    const visitasVal = getColValue(row, ['últimas visitas domiciliares', 'visitas domiciliares']);
+                    let hasInterval = false;
+                    if (visitasVal) {
+                        const validDates = [];
+                        const regex = /(\d{2}\/\d{2}\/\d{4})|(\d{4}-\d{2}-\d{2})/g;
+                        let m;
+                        while ((m = regex.exec(visitasVal)) !== null) {
+                            const d = parseDatePT(m[0]);
+                            if (d) validDates.push(d);
+                        }
+
+                        if (validDates.length >= 2) {
+                             const now = new Date(); const yearAgo = new Date(); yearAgo.setMonth(now.getMonth() - 12);
+                             const recentDates = validDates.filter(d => d >= yearAgo && d <= now);
+                             if (recentDates.length >= 2) {
+                                 recentDates.sort((a, b) => a - b);
+                                 for (let i = 0; i < recentDates.length - 1; i++) {
+                                     for (let j = i + 1; j < recentDates.length; j++) {
+                                          if (getDiffDays(recentDates[i], recentDates[j]) >= 29) { 
+                                              hasInterval = true; 
+                                              break; 
+                                          }
+                                     }
+                                     if (hasInterval) break;
+                                 }
+                             }
+                        }
+                    }
+                    if (!hasInterval) pending.push("Visitas (Intervalo/Qtd)");
+                    
+                    if (isDM) {
+                         const hba1cVal = getColValue(row, ['data da hemoglobina glicada', 'hemoglobina glicada']);
+                         if (!hba1cVal || !isDateInLastMonths(hba1cVal, 12)) pending.push("Hemoglobina (12m)");
+                         const pesVal = getColValue(row, ['data da avaliação dos pés', 'avaliação dos pés']);
+                         if (!pesVal || !isDateInLastMonths(pesVal, 12)) pending.push("Exame Pés (12m)");
+                    }
+                }
+                if (presetId === 'c6') {
+                    const medVal = getColValue(row, ['meses desde o último atendimento médico', 'meses médico']);
+                    const enfVal = getColValue(row, ['meses desde o último atendimento de enfermagem', 'meses enfermagem']);
+                    const parseMeses = (val) => { 
+                        if (val === null || val === undefined) return 999; 
+                        const strVal = String(val).toLowerCase().trim(); 
+                        if (['-', 'nunca', 'não', 'sem registro', 'não aplica', 'não se aplica'].some(s => strVal.includes(s))) { return 999; } 
+                        const match = strVal.match(/(\d+)/); 
+                        return match ? parseInt(match[1]) : 999; 
+                    };
+                    if (parseMeses(medVal) >= 12 && parseMeses(enfVal) >= 12) pending.push("Consulta (12m)");
+                    const pesoVal = getColValue(row, ['data da ultima medição de peso e altura', 'peso e altura']);
+                    const isDate = parseDatePT(pesoVal) !== null;
+                    if (!pesoVal || !isDate || !isDateInLastMonths(pesoVal, 12)) pending.push("Peso/Altura (12m)");
+                    
+                    const visitasVal = getColValue(row, ['últimas visitas domiciliares', 'visitas domiciliares']);
+                    let hasInterval = false;
+                    if (visitasVal) {
+                        const validDates = [];
+                        const regex = /(\d{2}\/\d{2}\/\d{4})|(\d{4}-\d{2}-\d{2})/g;
+                        let m;
+                        while ((m = regex.exec(visitasVal)) !== null) {
+                            const d = parseDatePT(m[0]);
+                            if (d) validDates.push(d);
+                        }
+
+                        if (validDates.length >= 2) {
+                             const now = new Date(); const yearAgo = new Date(); yearAgo.setMonth(now.getMonth() - 12);
+                             const recentDates = validDates.filter(d => d >= yearAgo && d <= now);
+                             if (recentDates.length >= 2) {
+                                 recentDates.sort((a, b) => a - b);
+                                 for (let i = 0; i < recentDates.length - 1; i++) {
+                                     for (let j = i + 1; j < recentDates.length; j++) {
+                                          if (getDiffDays(recentDates[i], recentDates[j]) >= 29) { 
+                                              hasInterval = true; 
+                                              break; 
+                                          }
+                                     }
+                                     if (hasInterval) break;
+                                 }
+                             }
+                        }
+                    }
+                    if (!hasInterval) pending.push("Visitas (Intervalo/Qtd)");
+                    
+                    const fluVal = getColValue(row, ['influenza', 'vacina influenza']);
+                    const invalidFlu = ['-', 'não', 'nunca', 'sem registro', 'não aplica', 'não se aplica'];
+                    if (fluVal) { 
+                        const cleanFlu = String(fluVal).trim().toLowerCase(); 
+                        if (cleanFlu.length > 0 && !invalidFlu.some(term => cleanFlu.includes(term))) { 
+                        } else {
+                            pending.push("Vacina Influenza");
+                        }
+                    } else {
+                        pending.push("Vacina Influenza");
+                    }
+                }
+                if (presetId === 'c7') {
+                      const dob = parseDatePT(getColValue(row, ['nascimento', 'data de nascimento']));
+                      if (dob) {
+                          const age = getAge(dob);
+                          if (age >= 25 && age <= 64) {
+                              const d1 = getColValue(row, ['rastreamento de câncer de colo de útero data última solicitação', 'colo de útero data última solicitação']);
+                              const d2 = getColValue(row, ['rastreamento de câncer de colo de útero data última avaliação', 'colo de útero data última avaliação']);
+                              if (!((d1 && isDateInLastMonths(d1, 36)) || (d2 && isDateInLastMonths(d2, 36)))) pending.push("Citopatológico (36m)");
+                          }
+                          if (age >= 9 && age <= 14) {
+                              const hpv = getColValue(row, ['hpv']);
+                              const hpvStr = String(hpv || '').trim();
+                              if (hpvStr === '-' || hpvStr === '' || hpvStr.toLowerCase().includes('nunca') || hpvStr.toLowerCase().includes('não aplica')) {
+                                  pending.push("Vacina HPV");
+                              }
+                          }
+                          if (age >= 14 && age <= 69) {
+                              const dSex = getColValue(row, ['data da última consulta de saúde sexual', 'saúde sexual']);
+                              if (!dSex || !isDateInLastMonths(dSex, 12)) pending.push("Consulta Saúde Sexual (12m)");
+                          }
+                          if (age >= 50 && age <= 69) {
+                              const d1 = getColValue(row, ['rastreamento de câncer de mama data última solicitação', 'mama data última solicitação']);
+                              const d2 = getColValue(row, ['rastreamento de câncer de mama data última avaliação', 'mama data última avaliação']);
+                              if (!((d1 && isDateInLastMonths(d1, 24)) || (d2 && isDateInLastMonths(d2, 24)))) pending.push("Mamografia (24m)");
+                          }
+                      }
+                }
+                return pending.length > 0 ? pending.join("; ") : "OK";
+            };
+
+            const calculateC2Score = (row) => { 
+                let score = 0; 
+                const dob = parseDatePT(getColValue(row, ['nascimento'])); 
+                const consult1Date = parseDatePT(getColValue(row, ['primeira consulta'])); 
+                if (dob && consult1Date) { 
+                    const diff = getDiffDays(dob, consult1Date); 
+                    if (diff !== null && diff <= 30) score += 20; 
+                } 
+                const qtdConsultasVal = getColValue(row, ['quantidade de consultas', 'consultas até 24']); 
+                if (qtdConsultasVal) { 
+                    const qtd = parseInt(qtdConsultasVal.replace(/\D/g, '')) || 0; 
+                    if (qtd >= 9) score += 20; 
+                } 
+                const qtdMedicoesVal = getColValue(row, ['peso/altura', 'medições de peso']); 
+                if (qtdMedicoesVal) { 
+                    const qtd = parseInt(qtdMedicoesVal.replace(/\D/g, '')) || 0; 
+                    if (qtd >= 9) score += 20; 
+                } 
+                
+                // Lógica de Pontuação das Visitas: Ambas devem estar ok para pontuar
+                const vd1Date = parseDatePT(getColValue(row, ['primeira visita', '1ª visita'])); 
+                const vd2Date = parseDatePT(getColValue(row, ['segunda visita', '2ª visita'])); 
+                if (dob && vd1Date && vd2Date) { 
+                    const diff1 = getDiffDays(dob, vd1Date); 
+                    const diff2 = getDiffDays(dob, vd2Date); 
+                    if (diff1 <= 30 && diff2 <= 180) { score += 20; } 
+                } 
+                
+                const pentaVal = getColValue(row, ['difteria', 'penta']); 
+                const polioVal = getColValue(row, ['poliomielite', 'vip', 'vop']); 
+                const tripleVal = getColValue(row, ['sarampo', 'triplice', 'tríplice']); 
+                const pneumoVal = getColValue(row, ['pneumo']); 
+                
+                const checkVac = (val, requiredDoses) => { 
+                    if (!val) return false; 
+                    const v = String(val).toLowerCase(); 
+                    if (v.includes('em dia') || v.includes('completo')) return true; 
+                    return countDates(String(val)) >= requiredDoses;
+                }; 
+                
+                if (checkVac(pentaVal, 3) && checkVac(polioVal, 3) && checkVac(tripleVal, 2) && checkVac(pneumoVal, 3)) { score += 20; } 
+                return score; 
+            };
+
+            const calculateC3Score = (row) => { 
+                let score = 0; 
+                const getInt = (keywords) => { const val = getColValue(row, keywords); return val ? (parseInt(String(val).replace(/\D/g, '')) || 0) : 0; }; 
+                const isSim = (keywords) => { const val = getColValue(row, keywords); return val && String(val).toUpperCase().includes("SIM"); }; 
+                const isFilled = (keywords) => { const val = getColValue(row, keywords); return val && String(val).trim().length > 0 && !String(val).toLowerCase().includes("não") && String(val).trim() !== '-'; }; 
+                if (getInt(['atendimentos até 12 semanas', '12 semanas']) >= 1) score += 10; 
+                if (getInt(['quantidade de atendimentos no pré-natal', 'atendimentos pré-natal']) >= 7) score += 9; 
+                if (getInt(['medições de pressão arterial']) >= 7) score += 9; 
+                if (getInt(['medições simultâneas de peso e altura', 'peso e altura']) >= 7) score += 9; 
+                if (getInt(['visitas domiciliares no pré-natal']) >= 3) score += 9; 
+                if (isFilled(['dtpa'])) score += 9; 
+                const g1 = isSim(['hiv no primeiro']); 
+                const g2 = isSim(['sífilis no primeiro', 'sifilis no primeiro']); 
+                const g3 = isSim(['hepatite b no primeiro']); 
+                const g4 = isSim(['hepatite c no primeiro']); 
+                if (g1 && g2 && g3 && g4) score += 9; 
+                const h1 = isSim(['hiv no terceiro']); 
+                const h2 = isSim(['sífilis no terceiro', 'sifilis no terceiro']); 
+                const h3 = isSim(['hepatite b no terceiro']); 
+                const h4 = isSim(['hepatite c no terceiro']); 
+                if (h1 && h2 && h3 && h4) score += 9; 
+                if (getInt(['visitas domiciliares no puerpério']) >= 1) score += 9; 
+                if (getInt(['atendimentos no puerpério']) >= 1) score += 9; 
+                if (getInt(['atendimentos odontológicos', 'odontológico']) >= 1) score += 9; 
+                return score; 
+            };
+
+            const calculateC4Score = (row) => { 
+                let score = 0; 
+                const ultimaConsultaVal = getColValue(row, ['data da última consulta', 'última consulta']); 
+                if (ultimaConsultaVal && isDateInLastMonths(ultimaConsultaVal, 6)) { score += 20; } 
+                const paVal = getColValue(row, ['data da última medição de pressão arterial', 'data da pressão', 'pressão arterial']); 
+                if (paVal && isDateInLastMonths(paVal, 6)) { score += 15; } 
+                const pesoAlturaVal = getColValue(row, ['data da ultima medição de peso e altura', 'data do peso', 'peso e altura']); 
+                if (pesoAlturaVal && isDateInLastMonths(pesoAlturaVal, 12)) { score += 15; } 
+                const visitasVal = getColValue(row, ['últimas visitas domiciliares', 'visitas domiciliares']); 
+                if (visitasVal) { 
+                    const validDates = [];
+                    const regex = /(\d{2}\/\d{2}\/\d{4})|(\d{4}-\d{2}-\d{2})/g;
+                    let m;
+                    while ((m = regex.exec(visitasVal)) !== null) {
+                        const d = parseDatePT(m[0]);
+                        if (d) validDates.push(d);
+                    }
+                    if (validDates.length >= 2) { 
+                        const now = new Date(); const yearAgo = new Date(); yearAgo.setMonth(now.getMonth() - 12); 
+                        const recentDates = validDates.filter(d => d >= yearAgo && d <= now); 
+                        if (recentDates.length >= 2) { 
+                            recentDates.sort((a, b) => a - b); 
+                            let hasInterval = false; 
+                            for (let i = 0; i < recentDates.length - 1; i++) { 
+                                for (let j = i + 1; j < recentDates.length; j++) { 
+                                    const diff = getDiffDays(recentDates[i], recentDates[j]); 
+                                    if (diff >= 29) { hasInterval = true; break; } 
+                                } 
+                                if (hasInterval) break; 
+                            } 
+                            if (hasInterval) score += 20; 
+                        } 
+                    } 
+                } 
+                const hba1cVal = getColValue(row, ['data da hemoglobina glicada', 'data da hemoglobina', 'hemoglobina glicada']); 
+                if (hba1cVal && isDateInLastMonths(hba1cVal, 12)) { score += 15; } 
+                const pesVal = getColValue(row, ['data da avaliação dos pés', 'data da avaliação', 'avaliação dos pés']); 
+                if (pesVal && isDateInLastMonths(pesVal, 12)) { score += 15; } 
+                return score; 
+            };
+
+            const calculateC5Score = (row) => { 
+                let score = 0; 
+                const ultimaConsultaVal = getColValue(row, ['data da última consulta', 'última consulta']); 
+                if (ultimaConsultaVal && isDateInLastMonths(ultimaConsultaVal, 6)) { score += 25; } 
+                const paVal = getColValue(row, ['data da última medição de pressão arterial', 'data da pressão', 'pressão arterial']); 
+                if (paVal && isDateInLastMonths(paVal, 6)) { score += 25; } 
+                const pesoAlturaVal = getColValue(row, ['data da ultima medição de peso e altura', 'data do peso', 'peso e altura']); 
+                if (pesoAlturaVal && isDateInLastMonths(pesoAlturaVal, 12)) { score += 25; } 
+                const visitasVal = getColValue(row, ['últimas visitas domiciliares', 'visitas domiciliares']); 
+                if (visitasVal) { 
+                    const validDates = [];
+                    const regex = /(\d{2}\/\d{2}\/\d{4})|(\d{4}-\d{2}-\d{2})/g;
+                    let m;
+                    while ((m = regex.exec(visitasVal)) !== null) {
+                        const d = parseDatePT(m[0]);
+                        if (d) validDates.push(d);
+                    }
+                    if (validDates.length >= 2) { 
+                        const now = new Date(); const yearAgo = new Date(); yearAgo.setMonth(now.getMonth() - 12); 
+                        const recentDates = validDates.filter(d => d >= yearAgo && d <= now); 
+                        if (recentDates.length >= 2) { 
+                            recentDates.sort((a, b) => a - b); 
+                            let hasInterval = false; 
+                            for (let i = 0; i < recentDates.length - 1; i++) { 
+                                for (let j = i + 1; j < recentDates.length; j++) { 
+                                    const diff = getDiffDays(recentDates[i], recentDates[j]); 
+                                    if (diff >= 29) { hasInterval = true; break; } 
+                                } 
+                                if (hasInterval) break; 
+                            } 
+                            if (hasInterval) score += 25; 
+                        } 
+                    } 
+                } 
+                return score; 
+            };
+
+            const calculateC6Score = (row) => { 
+                let score = 0; 
+                const medVal = getColValue(row, ['meses desde o último atendimento médico', 'meses médico']); 
+                const enfVal = getColValue(row, ['meses desde o último atendimento de enfermagem', 'meses enfermagem']); 
+                const parseMeses = (val) => { 
+                    if (val === null || val === undefined) return 999; 
+                    const strVal = String(val).toLowerCase().trim(); 
+                    if (['-', 'nunca', 'não', 'sem registro', 'não aplica', 'não se aplica'].some(s => strVal.includes(s))) { return 999; } 
+                    const match = strVal.match(/(\d+)/); 
+                    if (match) { return parseInt(match[1]); } 
+                    return 999; 
+                }; 
+                const medMeses = parseMeses(medVal); 
+                const enfMeses = parseMeses(enfVal); 
+                if (medMeses < 12 || enfMeses < 12) { score += 25; } 
+                const pesoVal = getColValue(row, ['data da ultima medição de peso e altura', 'data do peso', 'peso e altura']); 
+                const isDate = parseDatePT(pesoVal) !== null; 
+                if (pesoVal && isDate && isDateInLastMonths(pesoVal, 12)) { score += 25; } 
+                const visitasVal = getColValue(row, ['últimas visitas domiciliares', 'visitas domiciliares']); 
+                if (visitasVal) { 
+                    const validDates = [];
+                    const regex = /(\d{2}\/\d{2}\/\d{4})|(\d{4}-\d{2}-\d{2})/g;
+                    let m;
+                    while ((m = regex.exec(visitasVal)) !== null) {
+                        const d = parseDatePT(m[0]);
+                        if (d) validDates.push(d);
+                    }
+                    if (validDates.length >= 2) { 
+                        const now = new Date(); const yearAgo = new Date(); yearAgo.setMonth(now.getMonth() - 12); 
+                        const recentDates = validDates.filter(d => d >= yearAgo && d <= now); 
+                        if (recentDates.length >= 2) { 
+                            recentDates.sort((a, b) => a - b); 
+                            let hasInterval = false; 
+                            for (let i = 0; i < recentDates.length - 1; i++) { 
+                                for (let j = i + 1; j < recentDates.length; j++) { 
+                                    const diff = getDiffDays(recentDates[i], recentDates[j]); 
+                                    if (diff >= 29) { hasInterval = true; break; } 
+                                } 
+                                if (hasInterval) break; 
+                            } 
+                            if (hasInterval) score += 25; 
+                        } 
+                    } 
+                } 
+                const fluVal = getColValue(row, ['influenza', 'vacina influenza']); 
+                const invalidFlu = ['-', 'não', 'nunca', 'sem registro', 'não aplica', 'não se aplica']; 
+                if (fluVal) { 
+                    const cleanFlu = String(fluVal).trim().toLowerCase(); 
+                    if (cleanFlu.length > 0 && !invalidFlu.some(term => cleanFlu.includes(term))) { score += 25; } 
+                } 
+                return score; 
+            };
+
+            const calculateC7Score = (row) => {
+                const dob = parseDatePT(getColValue(row, ['nascimento', 'data de nascimento']));
+                if (!dob) return 0;
+                const age = getAge(dob);
+                let eligiblePoints = 0; let earnedPoints = 0;
+                if (age >= 25 && age <= 64) { eligiblePoints += 1; const d1 = getColValue(row, ['rastreamento de câncer de colo de útero data última solicitação', 'colo de útero data última solicitação']); const d2 = getColValue(row, ['rastreamento de câncer de colo de útero data última avaliação', 'colo de útero data última avaliação']); if ((d1 && isDateInLastMonths(d1, 36)) || (d2 && isDateInLastMonths(d2, 36))) { earnedPoints += 1; } }
+                if (age >= 9 && age <= 14) { eligiblePoints += 1; const hpv = getColValue(row, ['hpv']); const hpvStr = String(hpv || '').trim(); if (hpvStr === '-') { } else if (hpvStr !== '' && !hpvStr.toLowerCase().includes('nunca') && !hpvStr.toLowerCase().includes('não aplica')) { earnedPoints += 1; } }
+                if (age >= 14 && age <= 69) { eligiblePoints += 1; const dateSex = getColValue(row, ['data da última consulta de saúde sexual', 'saúde sexual']); if (dateSex && isDateInLastMonths(dateSex, 12)) { earnedPoints += 1; } }
+                if (age >= 50 && age <= 69) { eligiblePoints += 1; const date1 = getColValue(row, ['rastreamento de câncer de mama data última solicitação', 'mama data última solicitação']); const date2 = getColValue(row, ['rastreamento de câncer de mama data última avaliação', 'mama data última avaliação']); if ((date1 && isDateInLastMonths(date1, 24)) || (date2 && isDateInLastMonths(date2, 24))) { earnedPoints += 1; } }
+                if (eligiblePoints === 0) return 0; return Math.round((earnedPoints / eligiblePoints) * 100);
+            };
+
+            const calculateIndicatorStats = (data, visibleHeaders) => {
+                if (!data || data.length === 0) { setStats(null); return; }
+
+                if (currentFilter === 'cadastral') {
+                    let updatedCount = 0;
+                    let outdatedCount = 0;
+                    data.forEach(row => {
+                          const updateDate = getColValue(row, ['data da última atualização', 'última atualização', 'ultima atualizacao', 'atualização cadastral', 'data atualização']);
+                          if (updateDate && isDateInLastMonths(updateDate, 24)) {
+                              updatedCount++;
+                          } else {
+                              outdatedCount++;
+                          }
+                    });
+                    const total = data.length;
+                    const percentage = total > 0 ? ((updatedCount / total) * 100).toFixed(1) : 0;
+                    setStats({ numerator: updatedCount, denominator: total, percentage: percentage + "%", label: "Taxa de Atualização Cadastral (24m)", numeratorLabel: "Cadastros Atualizados" });
+                    return;
+                }
+
+                if (currentFilter === 'c7') {
+                    let numA = 0, denA = 0, numB = 0, denB = 0, numC = 0, denC = 0, numD = 0, denD = 0;
+                    data.forEach(row => {
+                          const dob = parseDatePT(getColValue(row, ['nascimento', 'data de nascimento'])); if(!dob) return;
+                          const age = getAge(dob); 
+                          if (age >= 25 && age <= 64) { denA++; const d1 = getColValue(row, ['rastreamento de câncer de colo de útero data última solicitação', 'colo de útero data última solicitação']); const d2 = getColValue(row, ['rastreamento de câncer de colo de útero data última avaliação', 'colo de útero data última avaliação']); if ((d1 && isDateInLastMonths(d1, 36)) || (d2 && isDateInLastMonths(d2, 36))) numA++; }
+                          if (age >= 9 && age <= 14) { denB++; const hpv = getColValue(row, ['hpv']); const hpvStr = String(hpv || '').trim(); if (hpvStr !== '-' && hpvStr !== '' && !hpvStr.toLowerCase().includes('nunca') && !hpvStr.toLowerCase().includes('não aplica')) numB++; }
+                          if (age >= 14 && age <= 69) { denC++; const dSex = getColValue(row, ['data da última consulta de saúde sexual', 'saúde sexual']); if (dSex && isDateInLastMonths(dSex, 12)) numC++; }
+                          if (age >= 50 && age <= 69) { denD++; const d1 = getColValue(row, ['rastreamento de câncer de mama data última solicitação', 'mama data última solicitação']); const d2 = getColValue(row, ['rastreamento de câncer de mama data última avaliação', 'mama data última avaliação']); if ((d1 && isDateInLastMonths(d1, 24)) || (d2 && isDateInLastMonths(d2, 24))) numD++; }
+                    });
+                    const resA = denA > 0 ? (numA / denA) * 20 : 0; const resB = denB > 0 ? (numB / denB) * 30 : 0; const resC = denC > 0 ? (numC / denC) * 30 : 0; const resD = denD > 0 ? (numD / denD) * 20 : 0;
+                    const finalScore = resA + resB + resC + resD;
+                    setStats({ isComposite: true, label: "Indicador Sintético Final (Estimado)", percentage: finalScore.toFixed(2), details: [ { label: "A - Colo do Útero", text: `(${numA}/${denA})*20=${resA.toFixed(1)}`, colorClasses: "bg-purple-100 border-purple-200 text-purple-900" }, { label: "B - Vacina HPV", text: `(${numB}/${denB})*30=${resB.toFixed(1)}`, colorClasses: "bg-blue-100 border-blue-200 text-blue-900" }, { label: "C - Saúde Sexual", text: `(${numC}/${denC})*30=${resC.toFixed(1)}`, colorClasses: "bg-yellow-100 border-yellow-200 text-yellow-900" }, { label: "D - Câncer Mama", text: `(${numD}/${denD})*20=${resD.toFixed(1)}`, colorClasses: "bg-pink-100 border-pink-200 text-pink-900" } ] }); return;
+                }
+                if (['c2', 'c3', 'c4', 'c5', 'c6'].includes(currentFilter)) {
+                    let totalScoreSum = 0; data.forEach(row => { if (row['Pontuação'] !== undefined) { totalScoreSum += row['Pontuação']; } else { if (currentFilter === 'c2') totalScoreSum += calculateC2Score(row); else if (currentFilter === 'c3') totalScoreSum += calculateC3Score(row); else if (currentFilter === 'c4') totalScoreSum += calculateC4Score(row); else if (currentFilter === 'c5') totalScoreSum += calculateC5Score(row); else if (currentFilter === 'c6') totalScoreSum += calculateC6Score(row); } });
+                    const total = data.length; const averageScore = total > 0 ? (totalScoreSum / total).toFixed(1) : 0;
+                    setStats({ numerator: totalScoreSum, denominator: total, percentage: averageScore, label: "Pontuação Média da Equipe", numeratorLabel: "Soma Total de Pontos" }); return;
+                }
+                const scoringColumns = visibleHeaders.filter(header => { const hLower = header.toLowerCase(); const isIdent = IDENTIFICATION_COLUMNS.some(id => hLower.includes(id)); const isScore = SCORING_KEYWORDS.some(key => hLower.includes(key)); return !isIdent && isScore; });
+                if (scoringColumns.length === 0) { setStats(null); return; }
+                let compliantCount = 0;
+                data.forEach(row => { let isRowCompliant = true; scoringColumns.forEach(col => { const status = getCellStatus(row[col]); if (status === 'critical' || status === 'empty') isRowCompliant = false; }); if (isRowCompliant) compliantCount++; });
+                const total = data.length; const percentage = total > 0 ? ((compliantCount / total) * 100).toFixed(1) : 0;
+                setStats({ numerator: compliantCount, denominator: total, percentage: percentage + "%", label: "Estimativa de Conformidade", numeratorLabel: "Registros Conformes" });
+            };
+
+            useEffect(() => {
+                if (currentFilter !== 'all' && csvData.length > 0) {
+                    calculateIndicatorStats(csvData, selectedHeaders);
+                } else {
+                    setStats(null);
+                }
+            }, [csvData, selectedHeaders, currentFilter]);
+
+            const applyPreset = (presetId) => {
+                setCurrentFilter(presetId);
+                const preset = FILTER_PRESETS.find(p => p.id === presetId);
+                setHasCustomOrder(false); 
+
+                if (['c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'cadastral'].includes(presetId)) {
+                    const enrichedData = csvData.map(row => {
+                        let score = 0; let pending = "OK";
+                        
+                        if (presetId === 'cadastral') {
+                             const updateDate = getColValue(row, ['data da última atualização', 'última atualização', 'ultima atualizacao', 'atualização cadastral']);
+                             if (updateDate && isDateInLastMonths(updateDate, 24)) score = 100; else score = 0;
+                        }
+                        else if (presetId === 'c2') score = calculateC2Score(row); 
+                        else if (presetId === 'c3') score = calculateC3Score(row); 
+                        else if (presetId === 'c4') score = calculateC4Score(row); 
+                        else if (presetId === 'c5') score = calculateC5Score(row); 
+                        else if (presetId === 'c6') score = calculateC6Score(row); 
+                        else if (presetId === 'c7') score = calculateC7Score(row);
+                        
+                        pending = calculatePendencies(row, presetId);
+                        return { ...row, 'Pontuação': score, 'Pendências': pending };
+                    });
+                    
+                    setCsvData(enrichedData);
+                    
+                    const currentHeadersClean = headers.filter(h => h !== 'Pontuação' && h !== 'Pendências');
+                    const newAllHeaders = [...currentHeadersClean, 'Pontuação', 'Pendências'];
+                    setHeaders(newAllHeaders);
+
+                    const filteredOriginal = newAllHeaders.filter(h => { const hLower = h.toLowerCase(); if (h === 'Pontuação' || h === 'Pendências') return false; return preset.keywords.some(key => hLower.includes(key)); });
+                    
+                    let finalSelection = [];
+                    if (presetId === 'cadastral') {
+                        finalSelection = [...filteredOriginal, 'Pendências'];
+                    } else {
+                        finalSelection = [...filteredOriginal, 'Pontuação', 'Pendências'];
+                    }
+                    
+                    setSelectedHeaders(finalSelection);
+                    return;
+                }
+
+                if (!preset || preset.id === 'all') { setSelectedHeaders(headers); return; }
+                const filtered = headers.filter(h => { const hLower = h.toLowerCase(); const isTarget = preset.keywords.some(key => hLower.includes(key)); if (preset.strict) return isTarget; const isId = IDENTIFICATION_COLUMNS.some(idKey => hLower.includes(idKey)); return isId || isTarget; });
+                if (filtered.length === 0) { alert(`Nenhuma coluna encontrada para o filtro "${preset.label}". Mostrando todas.`); setSelectedHeaders(headers); setCurrentFilter('all'); } else { setSelectedHeaders(filtered); }
+            };
+
+            const selectAllHeaders = () => { setSelectedHeaders(headers); setCurrentFilter('all'); setHasCustomOrder(false); setSortConfig({ key: null, direction: 'asc' }); };
+            const deselectAllHeaders = () => { setSelectedHeaders([]); setHasCustomOrder(false); setSortConfig({ key: null, direction: 'asc' }); };
+
+            const generatePDF = () => {
+                try {
+                    if (sortedData.length === 0) { alert("Não há dados carregados."); return; }
+                    if (selectedHeaders.length === 0) { alert("Selecione pelo menos uma coluna para o relatório."); return; }
+                    if (!window.jspdf) { alert("Erro: Biblioteca jsPDF não carregada. Atualize a página."); return; }
+
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF('landscape', 'mm', 'a4'); 
+                    
+                    const pageWidth = doc.internal.pageSize.width;
+                    const pageHeight = doc.internal.pageSize.height;
+
+                    doc.setFillColor(14, 165, 233); 
+                    doc.rect(0, 0, pageWidth, 32, 'F');
+                    
+                    doc.setTextColor(255, 255, 255);
+                    doc.setFont("helvetica", "bold");
+                    doc.setFontSize(14);
+                    doc.text("RELATÓRIO DE BUSCA ATIVA", 14, 9);
+                    
+                    doc.setFontSize(9);
+                    doc.setFont("helvetica", "normal");
+                    doc.text("INDICADORES DE DESEMPENHO APS", 14, 14);
+
+                    const indicatorName = teamData.indicador || "GERAL";
+                    doc.setFontSize(11);
+                    doc.setFont("helvetica", "bold");
+                    doc.text(`INDICADOR: ${indicatorName.toUpperCase()}`, 14, 21);
+
+                    doc.setFontSize(9);
+                    doc.setFont("helvetica", "normal");
+
+                    const equipeTexto = teamData.nome ? teamData.nome.toUpperCase() : "__________________________";
+                    doc.text(`EQUIPE: ${equipeTexto}`, pageWidth - 14, 9, { align: 'right' });
+                    
+                    if (teamData.municipio) {
+                        doc.text(`MUNICÍPIO: ${teamData.municipio.toUpperCase()}`, pageWidth - 14, 14, { align: 'right' });
+                    }
+                    doc.text(`GERADO EM: ${new Date().toLocaleString('pt-BR')}`, pageWidth - 14, 21, { align: 'right' });
+
+                    const activeHeaders = selectedHeaders; 
+                    const colCount = activeHeaders.length;
+                    
+                    const fontSize = colCount > 20 ? 4 : (colCount > 15 ? 4.5 : (colCount > 10 ? 5.5 : (colCount > 6 ? 7 : 8)));
+
+                    const cleanText = (txt) => { if (txt === null || txt === undefined) return ""; return String(txt); };
+                    const tableHeaders = activeHeaders.map(h => cleanText(h));
+                    
+                    const colStyles = {};
+                    activeHeaders.forEach((h, i) => {
+                        const hLower = h.toLowerCase();
+                        if (hLower.includes('nome')) {
+                            colStyles[i] = { minCellWidth: 25 }; 
+                        } else if (h === 'Pendências') {
+                            colStyles[i] = { minCellWidth: 20 }; 
+                        } else if (hLower.includes('idade') || hLower.includes('sexo') || hLower === 'uf') {
+                            colStyles[i] = { cellWidth: 'auto' }; 
+                        }
+                    });
+
+                    const tableBody = sortedData.map(row => activeHeaders.map(h => {
+                        let val = cleanText(row[h]);
+                        // Formatação visual da data para PDF
+                        const date = parseDatePT(val);
+                        if (date && (val.match(/^\d{4}-\d{2}-\d{2}/) || val.match(/^\d{2}-\d{2}-\d{4}/))) {
+                            val = date.toLocaleDateString('pt-BR');
+                        }
+
+                        if (h === 'Pendências' && val !== 'OK' && val.includes(';')) {
+                            return '• ' + val.replace(/; /g, '\n• ');
+                        }
+                        return val;
+                    }));
+
+                    doc.autoTable({
+                        head: [tableHeaders],
+                        body: tableBody,
+                        startY: 38,
+                        theme: 'grid',
+                        margin: { top: 38, right: 7, bottom: 15, left: 7 },
+                        styles: {
+                            fontSize: fontSize, 
+                            cellPadding: 1, 
+                            overflow: 'linebreak', 
+                            valign: 'middle',
+                            halign: 'center', 
+                            lineWidth: 0.1, 
+                            lineColor: [200, 200, 200],
+                        },
+                        columnStyles: colStyles,
+                        headStyles: {
+                            fillColor: [240, 248, 255], 
+                            textColor: [30, 41, 59], 
+                            fontStyle: 'bold',
+                            halign: 'center'
+                        },
+                        alternateRowStyles: { fillColor: [249, 250, 251] },
+                        didParseCell: function(data) {
+                            if (data.section === 'body') {
+                                const colIndex = data.column.index;
+                                const headerName = activeHeaders[colIndex];
+                                const rowRaw = sortedData[data.row.index];
+
+                                if (headerName === 'Pontuação') {
+                                    const score = parseInt(data.cell.raw);
+                                    data.cell.styles.fontStyle = 'bold';
+                                    if (score >= 90) data.cell.styles.textColor = [21, 128, 61]; 
+                                    else if (score >= 50) data.cell.styles.textColor = [202, 138, 4]; 
+                                    else data.cell.styles.textColor = [220, 38, 38]; 
+                                    return;
+                                }
+                                
+                                if (headerName === 'Pendências') {
+                                    const val = data.cell.raw; 
+                                    if (!val.includes('OK')) {
+                                        data.cell.styles.textColor = [220, 38, 38]; 
+                                        data.cell.styles.fontStyle = 'bold';
+                                        data.cell.styles.halign = 'left'; 
+                                    } else {
+                                        data.cell.styles.textColor = [21, 128, 61]; 
+                                    }
+                                    return;
+                                }
+
+                                const analysis = analyzeIndicatorCell(headerName, rowRaw, currentFilter);
+                                
+                                if (analysis) {
+                                    if (analysis.status === 'good') {
+                                        data.cell.styles.textColor = [21, 128, 61]; 
+                                    } else if (analysis.status === 'warning') {
+                                        data.cell.styles.textColor = [180, 83, 9]; 
+                                        data.cell.styles.fontStyle = 'bold';
+                                        data.cell.styles.fillColor = [254, 252, 232]; 
+                                    } else if (analysis.status === 'critical') {
+                                        data.cell.styles.textColor = [220, 38, 38]; 
+                                        data.cell.styles.fontStyle = 'bold';
+                                        data.cell.styles.fillColor = [254, 242, 242];
+                                    } else if (analysis.status === 'neutral') {
+                                        data.cell.styles.textColor = [156, 163, 175]; // Cinza texto
+                                        data.cell.styles.fillColor = [243, 244, 246]; // Cinza fundo
+                                    }
+                                    return;
+                                }
+
+                                const text = data.cell.raw;
+                                const status = getCellStatus(text);
+                                if (status === 'empty') {
+                                    data.cell.styles.fillColor = [254, 226, 226]; 
+                                    data.cell.styles.textColor = [220, 38, 38]; 
+                                    data.cell.styles.fontStyle = 'bold';
+                                } else if (status === 'critical') {
+                                    data.cell.styles.textColor = [220, 38, 38]; 
+                                    data.cell.styles.fontStyle = 'bold';
+                                    data.cell.styles.fillColor = [254, 242, 242];
+                                } else if (status === 'good') {
+                                    data.cell.styles.textColor = [21, 128, 61];
+                                }
+                            }
+                        },
+                        didDrawPage: function (data) {
+                            doc.setFontSize(8);
+                            doc.setTextColor(100);
+                            doc.text(`Página ${doc.internal.getNumberOfPages()}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
+                        }
+                    });
+
+                    const safeName = (teamData.nome || "Relatorio").replace(/[^a-z0-9]/gi, '_').toLowerCase();
+                    doc.save(`Busca_Ativa_${safeName}.pdf`);
+
+                } catch (error) {
+                    console.error("Erro PDF:", error);
+                    alert("Erro ao gerar PDF: O arquivo contém muitos dados ou colunas largas. Tente selecionar menos colunas.");
+                }
+            };
+
+            // --- TELA DE LOGIN ---
+            if (!isAuthenticated) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center p-4 login-bg">
+                        {/* SELO DE AUTORIA (Tela Login) */}
+                        <div className="fixed bottom-4 right-4 bg-white/80 backdrop-blur-sm border border-gray-200 px-3 py-1.5 rounded-full z-50 flex items-center gap-2 cursor-default">
+                            <span className="text-[9px] uppercase font-bold text-gray-400 tracking-wider">Autoria</span>
+                            <div className="flex items-center gap-1.5">
+                                <div className="w-1.5 h-1.5 rounded-full bg-sky-500"></div>
+                                <span className="text-xs font-bold text-gray-700">Júlia Ribeiro</span>
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-xl shadow-lg border border-gray-100 max-w-sm w-full overflow-hidden">
+                            <div className="bg-sky-600 p-6 text-center">
+                                <div className="bg-white/10 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3 backdrop-blur-sm">
+                                    <Lock className="w-8 h-8 text-white" />
+                                </div>
+                                <h1 className="text-xl font-bold text-white">Acesso Restrito</h1>
+                                <p className="text-sky-100 text-sm mt-1">Busca Ativa APS</p>
+                            </div>
+                            
+                            <form onSubmit={handleLogin} className="p-6 space-y-4">
+                                {loginError && (
+                                    <div className="bg-red-50 border border-red-100 text-red-600 text-xs p-3 rounded-lg flex items-center gap-2">
+                                        <div className="w-1 h-1 bg-red-500 rounded-full"></div>
+                                        {loginError}
+                                    </div>
+                                )}
+                                
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Município</label>
+                                    <div className="relative">
+                                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                            <User className="h-4 w-4 text-gray-400" />
+                                        </div>
+                                        <input 
+                                            type="text" 
+                                            className="w-full pl-10 pr-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent transition-all"
+                                            placeholder="Digite o nome do município..."
+                                            value={loginUser}
+                                            onChange={(e) => setLoginUser(e.target.value)}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Senha de Acesso</label>
+                                    <div className="relative">
+                                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                            <Key className="h-4 w-4 text-gray-400" />
+                                        </div>
+                                        <input 
+                                            type="password" 
+                                            className="w-full pl-10 pr-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent transition-all"
+                                            placeholder="Digite a senha..."
+                                            value={loginPass}
+                                            onChange={(e) => setLoginPass(e.target.value)}
+                                        />
+                                    </div>
+                                </div>
+
+                                <button type="submit" className="w-full bg-sky-600 hover:bg-sky-700 text-white font-bold py-3 rounded-lg shadow-md shadow-sky-200 transition-all active:scale-95 text-sm">
+                                    ENTRAR NO SISTEMA
+                                </button>
+                                
+                                <div className="pt-2 text-center">
+                                    <p className="text-[10px] text-gray-400">
+                                        * Acesso controlado por senha local.
+                                    </p>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                );
+            }
+
+            // --- TELA PRINCIPAL (APÓS LOGIN) ---
+            return (
+                <div className="min-h-screen pb-12">
+                    <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
+                        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <div className="bg-sky-600 p-2 rounded text-white"><FileText className="w-5 h-5" /></div>
+                                <h1 className="text-xl font-bold text-gray-800 tracking-tight">Busca Ativa <span className="text-sky-600">APS</span></h1>
+                            </div>
+                            <div className="flex items-center gap-4">
+                                <div className="text-right hidden sm:block">
+                                    <span className="block text-xs font-bold text-gray-400 uppercase">Município</span>
+                                    <span className="block text-sm font-semibold text-gray-700">{teamData.municipio || "Não Identificado"}</span>
+                                </div>
+                                <button onClick={handleLogout} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Sair">
+                                    <LogOut className="w-5 h-5" />
+                                </button>
+                            </div>
+                        </div>
+                    </header>
+
+                    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8 relative">
+                        <div className="space-y-6"> 
+                            
+                            {/* Topo: Controles */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                
+                                {/* Configuração */}
+                                <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden flex flex-col">
+                                    <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex items-center gap-2">
+                                        <Settings className="w-4 h-4 text-gray-500" /><h2 className="font-semibold text-gray-700 text-sm">Configuração</h2>
+                                    </div>
+                                    <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <div className="sm:col-span-2">
+                                            <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Indicador do Relatório</label>
+                                            <select 
+                                                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-sky-500 bg-white"
+                                                value={teamData.indicador}
+                                                onChange={(e) => setTeamData({...teamData, indicador: e.target.value})}
+                                            >
+                                                {FILTER_PRESETS.filter(p => p.id !== 'all').map((preset) => (
+                                                    <option key={preset.id} value={preset.label}>{preset.label}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Nome da Equipe</label>
+                                            <input type="text" className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm outline-none focus:ring-2 focus:ring-sky-500" value={teamData.nome} onChange={(e) => setTeamData({...teamData, nome: e.target.value})} placeholder="Digite o nome..." />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Município</label>
+                                            <input type="text" readOnly className="w-full px-3 py-2 border border-gray-200 bg-gray-50 rounded-md text-sm outline-none text-gray-500 cursor-not-allowed" value={teamData.municipio} />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Importar CSV & Ações */}
+                                <div className="flex flex-col gap-4">
+                                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden flex-1 flex flex-col">
+                                        <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex items-center gap-2">
+                                            <Upload className="w-4 h-4 text-gray-500" /><h2 className="font-semibold text-gray-700 text-sm">Importar CSV</h2>
+                                        </div>
+                                        <div className="p-4 flex-1 flex flex-col justify-center">
+                                            {!file ? (
+                                                <div className="relative border-2 border-dashed border-gray-300 rounded-lg text-center hover:bg-gray-50 transition-colors group cursor-pointer h-32 flex flex-col items-center justify-center">
+                                                    <input type="file" accept=".csv" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 z-50 cursor-pointer" />
+                                                    <div className="w-12 h-12 bg-sky-50 rounded-full flex items-center justify-center mb-2 group-hover:scale-110 transition-transform"><Upload className="w-6 h-6 text-sky-600" /></div>
+                                                    <span className="text-sm font-medium text-gray-700 block">Clique ou arraste o CSV aqui</span>
+                                                </div>
+                                            ) : (
+                                                <div className="bg-sky-50 border border-sky-100 p-3 rounded-lg flex items-center justify-between">
+                                                    <div className="flex items-center gap-3 overflow-hidden">
+                                                        <div className="bg-white p-1.5 rounded-full shadow-sm"><CheckCircle className="w-5 h-5 text-green-500" /></div>
+                                                        <div className="flex flex-col overflow-hidden"><span className="text-sm font-medium text-gray-800 truncate">{file.name}</span><span className="text-xs text-gray-500">{csvData.length} linhas</span></div>
+                                                    </div>
+                                                    <button onClick={resetFile} className="text-red-400 hover:text-red-600 p-1 hover:bg-red-50 rounded transition-colors"><Trash2 className="w-4 h-4" /></button>
+                                                </div>
+                                            )}
+                                            {errorMsg && <p className="text-xs text-red-500 mt-2">{errorMsg}</p>}
+                                        </div>
+                                    </div>
+
+                                    <button onClick={generatePDF} disabled={csvData.length === 0} className={`w-full py-4 px-4 rounded-lg flex items-center justify-center gap-2 font-bold shadow-md transition-all active:scale-95 ${csvData.length > 0 ? 'bg-sky-600 hover:bg-sky-700 text-white shadow-sky-200' : 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none'}`}>
+                                        <Download className="w-5 h-5" /> BAIXAR RELATÓRIO PDF
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Seletor de Colunas */}
+                            {headers.length > 0 && (
+                                <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                                    <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                        <div className="flex items-center gap-2">
+                                            <Filter className="w-4 h-4 text-gray-500" />
+                                            <h2 className="font-semibold text-gray-700 text-sm">Filtrar Colunas</h2>
+                                            
+                                            <div className="h-4 w-px bg-gray-300 mx-2"></div>
+                                            <button 
+                                                onClick={() => setIsReordering(!isReordering)}
+                                                className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors ${isReordering ? 'bg-sky-100 text-sky-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                                            >
+                                                {isReordering ? <CheckCircle className="w-3 h-3" /> : <ListOrder className="w-3 h-3" />}
+                                                {isReordering ? "Concluir Organização" : "Organizar Ordem"}
+                                            </button>
+                                        </div>
+                                        
+                                        <div className="flex items-center gap-4 flex-1 justify-end">
+                                            <select 
+                                                className="w-full sm:w-64 px-2 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-sky-500 outline-none bg-white"
+                                                value={currentFilter}
+                                                onChange={(e) => applyPreset(e.target.value)}
+                                            >
+                                                {FILTER_PRESETS.map(preset => (
+                                                    <option key={preset.id} value={preset.id}>{preset.label}</option>
+                                                ))}
+                                            </select>
+                                            <div className="flex gap-2">
+                                                <button onClick={selectAllHeaders} className="text-[10px] text-sky-600 font-bold hover:underline whitespace-nowrap">TODAS</button>
+                                                <button onClick={deselectAllHeaders} className="text-[10px] text-red-400 font-bold hover:underline whitespace-nowrap">NENHUMA</button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* MODO DE REORDENAÇÃO */}
+                                    {isReordering ? (
+                                        <div className="p-4 bg-sky-50/50 inner-shadow border-t border-gray-100">
+                                            <div className="mb-3 flex items-center justify-between">
+                                                <p className="text-xs text-gray-500 italic">Use as setas para alterar a ordem das colunas no PDF e na Tabela.</p>
+                                                <button onClick={resetOrder} className="text-xs text-sky-600 hover:text-sky-800 flex items-center gap-1 font-medium"><RefreshCw className="w-3 h-3" /> Restaurar Padrão</button>
+                                            </div>
+                                            <div className="max-h-80 overflow-y-auto pr-2 space-y-1">
+                                                {selectedHeaders.map((header, index) => (
+                                                    <div key={header} className="flex items-center justify-between bg-white p-2 rounded border border-gray-200 shadow-sm">
+                                                        <span className="text-xs font-medium text-gray-700 truncate flex-1">{index + 1}. {header}</span>
+                                                        <div className="flex items-center gap-1">
+                                                            <button 
+                                                                onClick={() => moveHeader(index, 'up')} 
+                                                                disabled={index === 0}
+                                                                className={`p-1 rounded hover:bg-gray-100 ${index === 0 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:text-sky-600'}`}
+                                                            >
+                                                                <ArrowUp className="w-4 h-4" />
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => moveHeader(index, 'down')} 
+                                                                disabled={index === selectedHeaders.length - 1}
+                                                                className={`p-1 rounded hover:bg-gray-100 ${index === selectedHeaders.length - 1 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:text-sky-600'}`}
+                                                            >
+                                                                <ArrowDown className="w-4 h-4" />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                                {selectedHeaders.length === 0 && <p className="text-center text-gray-400 text-sm py-4">Nenhuma coluna selecionada para ordenar.</p>}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        /* MODO DE SELEÇÃO */
+                                        <div className="p-4 bg-gray-50/50 inner-shadow">
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-60 overflow-y-auto">
+                                                {headers.map(header => (
+                                                    <label key={header} className="flex items-start gap-2 p-2 hover:bg-white rounded cursor-pointer checkbox-wrapper group transition-colors border border-transparent hover:border-gray-200">
+                                                        <input 
+                                                            type="checkbox" 
+                                                            className="hidden" 
+                                                            checked={selectedHeaders.includes(header)}
+                                                            onChange={() => toggleHeader(header)}
+                                                        />
+                                                        <div className={`w-4 h-4 border rounded flex-shrink-0 flex items-center justify-center transition-colors mt-0.5 ${selectedHeaders.includes(header) ? 'bg-sky-500 border-sky-500' : 'border-gray-300 bg-white'}`}>
+                                                            <svg className="w-3 h-3 text-white hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
+                                                        </div>
+                                                        <span className={`text-xs select-none leading-tight break-words ${selectedHeaders.includes(header) ? 'text-gray-800 font-medium' : 'text-gray-500'}`}>
+                                                            {header}
+                                                        </span>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                            <div className="mt-2 flex justify-between items-center">
+                                                <div className="px-3 py-1 bg-yellow-50 text-[10px] text-yellow-700 text-center border border-yellow-100 rounded">
+                                                    {selectedHeaders.length} colunas selecionadas para o PDF
+                                                </div>
+                                                {hasCustomOrder && <span className="text-[10px] text-sky-600 font-bold bg-sky-50 px-2 py-1 rounded">Ordem Personalizada Ativa</span>}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Tabela (Full Width) */}
+                            <div className="bg-white rounded-lg shadow-sm border border-gray-200 flex flex-col h-[800px]">
+                                <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
+                                    <div className="flex items-center gap-2"><Search className="w-4 h-4 text-gray-500" /><h3 className="font-semibold text-gray-700 text-sm">Visualização</h3></div>
+                                    {csvData.length > 0 && <span className="bg-sky-100 text-sky-800 text-xs px-2 py-0.5 rounded-full font-medium">{csvData.length} registros</span>}
+                                </div>
+                                
+                                {stats && (
+                                    <div className="bg-blue-50 border-b border-blue-100 px-4 py-3">
+                                            <div className="flex flex-wrap gap-4 items-center justify-between">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="p-2 bg-blue-100 rounded-lg text-blue-600">
+                                                        <Calculator className="w-5 h-5" />
+                                                    </div>
+                                                    <div>
+                                                        <h4 className="text-sm font-bold text-blue-800">{stats.label || "Estimativa"}</h4>
+                                                        <p className="text-xs text-blue-600">{stats.isComposite ? "Composição Ponderada" : "Baseado nos dados carregados"}</p>
+                                                    </div>
+                                                </div>
+                                                
+                                                {stats.isComposite ? (
+                                                    <div className="flex items-center gap-4">
+                                                        <span className="text-2xl font-bold text-blue-700">{stats.percentage}</span>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex gap-4">
+                                                        <div className="text-center">
+                                                            <span className="block text-xs text-gray-500 uppercase font-bold">{stats.numeratorLabel || "Numerador"}</span>
+                                                            <span className="text-lg font-bold text-green-600">{stats.numerator}</span>
+                                                        </div>
+                                                        <div className="text-center border-l border-blue-200 pl-4">
+                                                            <span className="block text-xs text-gray-500 uppercase font-bold">Denominador</span>
+                                                            <span className="text-lg font-bold text-gray-700">{stats.denominator}</span>
+                                                        </div>
+                                                        <div className="text-center border-l border-blue-200 pl-4">
+                                                            <span className="block text-xs text-gray-500 uppercase font-bold">Resultado</span>
+                                                            <span className="text-lg font-bold text-blue-700">{stats.percentage}</span>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                            
+                                            {/* Detalhamento para Indicadores Compostos */}
+                                            {stats.details && (
+                                                <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2 pt-3 border-t border-blue-200">
+                                                    {stats.details.map((det, idx) => (
+                                                        <div key={idx} className={`p-2 rounded border flex flex-col items-center text-center ${det.colorClasses || 'bg-white border-blue-100'}`}>
+                                                            <span className="text-[10px] font-bold opacity-70 uppercase mb-1">{det.label}</span>
+                                                            <span className="text-xs font-bold">{det.text}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                    </div>
+                                )}
+
+                                <div className="flex-1 overflow-auto table-container bg-white relative">
+                                    {loading ? (
+                                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/80 z-20"><div className="loading-spinner mb-4"></div><p className="text-gray-500">Processando...</p></div>
+                                    ) : csvData.length === 0 ? (
+                                        <div className="h-full flex flex-col items-center justify-center text-gray-300"><FileText className="w-16 h-16 mb-4 opacity-20" /><p>Nenhum dado para exibir</p></div>
+                                    ) : (
+                                        <table className="w-full text-xs text-center border-collapse">
+                                            <thead className="text-xs text-gray-700 uppercase bg-gray-100 sticky top-0 z-10 shadow-sm">
+                                                <tr>
+                                                    {selectedHeaders.map((header, index) => (
+                                                        <th 
+                                                            key={index} 
+                                                            onClick={() => handleSort(header)}
+                                                            className="px-4 py-3 font-bold border-b border-r border-gray-300 min-w-[150px] bg-gray-100 whitespace-normal cursor-pointer select-none sortable transition-colors relative group"
+                                                        >
+                                                            <div className="flex items-center justify-center gap-1">
+                                                                {header}
+                                                                <span className="text-gray-400">
+                                                                    {sortConfig.key === header ? (
+                                                                        sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-sky-600" /> : <ArrowDown className="w-3 h-3 text-sky-600" />
+                                                                    ) : (
+                                                                        <ArrowUpDown className="w-3 h-3 opacity-0 group-hover:opacity-50" />
+                                                                    )}
+                                                                </span>
+                                                            </div>
+                                                        </th>
+                                                    ))}
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-200">
+                                                {sortedData.map((row, rowIndex) => (
+                                                    <tr key={rowIndex} className="hover:bg-sky-50/50 transition-colors odd:bg-white even:bg-gray-50/30">
+                                                        {selectedHeaders.map((header, colIndex) => {
+                                                            const cellValue = row[header];
+                                                            const isScoreCol = header === 'Pontuação';
+                                                            const isPendingCol = header === 'Pendências';
+                                                            let displayValue = (isScoreCol || isPendingCol) ? cellValue : ((typeof cellValue === 'object' && cellValue !== null) ? JSON.stringify(cellValue) : String(cellValue || ""));
+                                                            
+                                                            // Formatação visual da data para PT-BR se detectar ISO
+                                                            const parsedDate = parseDatePT(displayValue);
+                                                            if (parsedDate && (displayValue.match(/^\d{4}-\d{2}-\d{2}/) || displayValue.match(/^\d{2}-\d{2}-\d{4}/))) {
+                                                                displayValue = parsedDate.toLocaleDateString('pt-BR');
+                                                            }
+
+                                                            let statusClass = "text-gray-600";
+                                                            let cellBg = "";
+                                                            
+                                                            const analysis = analyzeIndicatorCell(header, row, currentFilter);
+                                                            
+                                                            if (isScoreCol) {
+                                                                const score = parseInt(displayValue);
+                                                                statusClass = "font-bold text-center";
+                                                                if (score >= 90) statusClass += " text-green-600";
+                                                                else if (score >= 50) statusClass += " text-yellow-600";
+                                                                else statusClass += " text-red-600";
+                                                            } else if (isPendingCol) {
+                                                                statusClass = "text-center font-medium text-[11px] leading-tight";
+                                                                if (displayValue === 'OK') statusClass += " text-green-600";
+                                                                else statusClass += " text-red-600";
+                                                            } else if (analysis) {
+                                                                if (analysis.status === 'good') {
+                                                                    statusClass = "text-green-700 font-bold";
+                                                                } else if (analysis.status === 'warning') {
+                                                                    statusClass = "text-yellow-700 font-bold";
+                                                                    cellBg = "bg-yellow-50";
+                                                                } else if (analysis.status === 'critical') {
+                                                                    statusClass = "text-red-600 font-bold";
+                                                                    cellBg = "bg-red-50";
+                                                                } else if (analysis.status === 'neutral') {
+                                                                    statusClass = "text-gray-400";
+                                                                    cellBg = "bg-gray-100";
+                                                                }
+                                                            } else {
+                                                                const status = getCellStatus(displayValue);
+                                                                if (status === 'empty') {
+                                                                    statusClass = "text-red-600 font-bold";
+                                                                    cellBg = "bg-red-100";
+                                                                } else if (status === 'critical') { 
+                                                                    statusClass = "text-red-600 font-bold"; 
+                                                                    cellBg = "bg-red-50/50"; 
+                                                                } else if (status === 'good') { 
+                                                                    statusClass = "text-green-700 font-medium"; 
+                                                                }
+                                                            }
+
+                                                            return (
+                                                                <td key={colIndex} className={`px-4 py-2 border-r border-gray-200 last:border-0 ${statusClass} ${cellBg} align-top whitespace-normal break-words max-w-xs justify-center text-center`}>
+                                                                    {displayValue}
+                                                                </td>
+                                                            );
+                                                        })}
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* SELO DE AUTORIA FIXO (Painel) */}
+                        <div className="fixed bottom-4 right-4 bg-white/95 backdrop-blur-sm border border-gray-200 px-3 py-1.5 rounded-full shadow-lg z-50 flex items-center gap-2 transition-all hover:scale-105 cursor-default group">
+                            <span className="text-[9px] uppercase font-bold text-gray-400 tracking-wider">Autoria</span>
+                            <div className="flex items-center gap-1.5">
+                                <div className="w-1.5 h-1.5 rounded-full bg-sky-500"></div>
+                                <span className="text-xs font-bold text-gray-700 group-hover:text-sky-600 transition-colors">Júlia Ribeiro</span>
+                            </div>
+                        </div>
+
+                    </main>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
